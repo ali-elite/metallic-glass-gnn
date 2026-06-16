@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+results/*.log
+# raw thesis data is intentionally not tracked (size + attribution)
+data/
+*.lammpsTrj

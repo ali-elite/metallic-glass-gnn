@@ -1,0 +1,12 @@
+# Core (CPU-only; all already available in the dev environment)
+numpy
+scipy
+scikit-learn
+networkx
+matplotlib
+pandas
+torch            # pure-PyTorch GCN; PyTorch-Geometric is NOT required
+
+# Optional — only needed to (re)compute Voronoi labels for the samples3 systems
+# freud-analysis
+# ase
