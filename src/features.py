@@ -28,6 +28,23 @@ def load_samples2():
     return dict(pos=pos, L=L, types=types, radius=radius, y=y, nbrs=nbrs, N=N, vor=vor)
 
 
+def load_samples3_target(path, type_radius, frame=-1):
+    """Load one samples3 chemistry (a possibly multi-frame LAMMPS dump).
+
+    `type_radius` maps LAMMPS atom-type integers to element radii (Angstrom), e.g.
+    {1: 1.28, 2: 1.60} for Cu-Zr. By default uses the last (most relaxed) frame.
+    Returns positions wrapped into [0, L), like `load_samples2`. No labels here -
+    Phase 4 computes them with the pyvoro radical Voronoi (`src.voronoi`).
+    """
+    from src.data import read_lammps_frames
+    fr = read_lammps_frames(path)[frame]
+    L = (fr["box"][:, 1] - fr["box"][:, 0]).astype(float)
+    pos = (fr["pos"] - fr["box"][:, 0]) % L
+    types = fr["types"].astype(int)
+    radius = np.array([type_radius[t] for t in types], dtype=float)
+    return dict(pos=pos, L=L, types=types, radius=radius, N=fr["natoms"])
+
+
 def _minimum_image(delta, L):
     return delta - L * np.round(delta / L)
 

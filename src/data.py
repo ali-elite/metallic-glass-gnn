@@ -51,6 +51,42 @@ def read_lammps_dump(path, sort_by_id=False):
     return dict(natoms=natoms, box=box, ids=ids[order], types=typ[order], pos=pos[order])
 
 
+def read_lammps_frames(path, sort_by_id=False):
+    """Parse a possibly multi-frame LAMMPS custom dump into a list of frame dicts.
+
+    Each frame dict matches `read_lammps_dump`'s output (natoms, box, ids, types,
+    pos). Coordinates are returned in *file order* by default (see the gotcha in
+    `read_lammps_dump`). Used for the samples3 trajectories, some of which contain
+    several snapshots; Phase 4 uses the last (most relaxed) frame.
+    """
+    with open(path) as f:
+        lines = f.readlines()
+    frames, i, n = [], 0, len(lines)
+    while i < n:
+        if not lines[i].startswith("ITEM: TIMESTEP"):
+            i += 1; continue
+        natoms = int(lines[i + 3])               # TIMESTEP, value, NUMBER OF ATOMS, value
+        box = [tuple(map(float, lines[i + 5 + k].split()[:2])) for k in range(3)]
+        cols = lines[i + 8].split()[2:]          # ITEM: ATOMS ...
+        rows = [lines[i + 9 + k].split() for k in range(natoms)]
+        c = {name: j for j, name in enumerate(cols)}
+        box = np.array(box)
+        ids = np.array([int(r[c["id"]]) for r in rows])
+        typ = np.array([int(r[c["type"]]) for r in rows])
+        if "x" in c:
+            pos = np.array([[float(r[c["x"]]), float(r[c["y"]]), float(r[c["z"]])] for r in rows])
+        elif "xs" in c:
+            s = np.array([[float(r[c["xs"]]), float(r[c["ys"]]), float(r[c["zs"]])] for r in rows])
+            pos = box[:, 0] + s * (box[:, 1] - box[:, 0])
+        else:
+            raise KeyError(f"no x/xs columns in dump; got {cols}")
+        order = np.argsort(ids) if sort_by_id else np.arange(len(ids))
+        frames.append(dict(natoms=natoms, box=box, ids=ids[order],
+                           types=typ[order], pos=pos[order]))
+        i += 9 + natoms
+    return frames
+
+
 def read_fo_list(path):
     """Voronoi index per atom. Returns (total[N], vor[N,6]=n3..n8, vol[N])."""
     rows = []

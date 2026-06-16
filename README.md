@@ -102,17 +102,59 @@ Three honest takeaways (we do **not** overclaim a GNN win on everything):
    (Q=0.33). (`scripts/03_community_detection.py`,
    `results/03_community_detection.{json,png}`.)
 
+## Phase-4 result — cross-chemistry transfer (`samples3`, 27 target alloys)
+
+Does a Cu–Zr-trained icosahedron detector transfer **zero-shot** to other glass
+chemistries? We label every `samples3` target with the *same* radical-Voronoi
+method that produced the `samples2` labels — a [pyvoro](https://github.com/joe-jordan/pyvoro)
+labeller (`src/voronoi.py`) **validated to reproduce `fo_list` perfect-ICO at
+F1 = 1.000**. To transfer at all, the model is made **element-agnostic**: each atom
+carries only its radius (+ the periodic kNN graph with RBF bond-distance edges), so
+the same Cu–Zr model applies to Co/W, Ni/Zr, Cu/Zr/Al. Source Cu–Zr test: ROC-AUC
+**0.985**, F1 0.85.
+
+| target family | members | zero-shot ROC-AUC (mean) |
+|---|---|---|
+| **Ni–Zr** (new element) | 46:54 → 64:36 | **0.96** |
+| **Co–W** (different alloy) | W 10–75 % | **0.92** |
+| **Cu–Zr** (new compositions) | 46:54 → 64:36 | 0.89 |
+| **Cu–Zr–Al** (added 3rd element) | Al 5–25 % | 0.70 |
+
+Honest reading (we separate *ranking* from *thresholded* classification):
+
+1. **Ranking transfers strongly; the threshold does not.** Zero-shot ROC-AUC stays
+   0.89–0.96 across new compositions, a new element, and an entirely different
+   alloy — within ~0.03–0.06 of an in-domain oracle (e.g. Ni–Zr 64:36 zero-shot
+   AUC 0.93 vs oracle 0.96; Co–W 50 % 0.91 vs 0.99). But perfect-ICO base rates
+   swing from 19 % (Cu–Zr) to 0–3 %, so F1 at the fixed 0.5 threshold collapses
+   where ICO is rare — the model still *ranks* icosahedral atoms correctly, it just
+   needs per-target re-calibration.
+2. **Size ratio matters more than element identity.** Ni–Zr (a *new* element)
+   transfers **better** than Cu–Zr–Al (the *same* base elements + Al), because
+   Ni ≈ Cu in size while Al introduces genuinely new intermediate-size local
+   environments. Co–W transfers well despite sharing no elements with the source.
+3. **Limits, stated plainly.** At ≥ 80 % W the perfect icosahedron essentially
+   vanishes (nothing to detect), and the detector hallucinates ICO far outside the
+   training regime. (`scripts/04_transfer.py`, `results/04_transfer.{json,png}`,
+   design in [`docs/phase4_transfer_design.md`](docs/phase4_transfer_design.md).)
+
 ## Data
 
 | Folder | System | Has Voronoi labels? | Has face-sharing graph? |
 |---|---|---|---|
 | `samples1` | Cu₆₄Zr₃₆, 13,500 atoms | yes (`Face_order_list`) | no (build from coords) |
 | `samples2` | 10,000 atoms | yes (`fo_list`) | **yes (`nb_id`)** ← start here |
-| `samples3` | Co–W, Cu–Zr–Al, Cu–Zr, Ni–Zr (many compositions) | no (run Voro++) | no |
+| `samples3` | Co–W, Cu–Zr–Al, Cu–Zr, Ni–Zr (many compositions) | **yes (Phase 4: pyvoro radical Voronoi)** | no |
 
-`samples3` enables the **transferability** study (train on one chemistry, test on
-another). See [`docs/lammps.md`](docs/lammps.md) for how the trajectories were
-generated (reconstructed MD methodology).
+`samples3` powers the **transferability** study (Phase 4: train on Cu–Zr, test on
+27 other alloys). See [`docs/lammps.md`](docs/lammps.md) for how the trajectories
+were generated (reconstructed MD methodology).
+
+## Requirements
+
+Phases 1–3 are pure **PyTorch + NetworkX + scikit-learn** (CPU). Phase 4 adds one
+optional dependency, **`pyvoro`** (a Voro++ binding), used only to compute
+radical-Voronoi labels for `samples3`: `pip install pyvoro`.
 
 ## Layout
 
@@ -123,10 +165,13 @@ src/data.py                    # parse LAMMPS dump / fo_list / nb_id; icosahedro
 src/graph.py                   # build atomic graph; physical (ground-truth) ICO communities
 src/features.py                # geometry -> node features (kNN graph, invariant scalars)
 src/models.py                  # MLP, CGCNN (Phase 2); DMoN modularity GNN (Phase 3)
+src/voronoi.py                 # Phase 4: pyvoro radical-Voronoi index (labels any chemistry)
 scripts/01_ico_network.py      # Phase 1: characterise the icosahedral network  [DONE]
 scripts/02_node_classification.py  # Phase 2: geometry -> icosahedron classifier  [DONE]
 scripts/03_community_detection.py  # Phase 3: label-free community detection      [DONE]
+scripts/04_transfer.py         # Phase 4: cross-chemistry zero-shot transfer      [DONE]
 docs/lammps.md                 # the molecular-dynamics stage (reconstructed)
+docs/phase4_transfer_design.md # Phase 4 design / methods note
 results/                       # figures + metrics JSON
 ```
 
@@ -135,7 +180,7 @@ results/                       # figures + metrics JSON
 - [x] **Phase 1** — data pipeline, atomic graph, physical ICO-network ground truth.
 - [x] **Phase 2** — GNN node classifier (geometry → icosahedron): ICO-F1 0.90 vs 0.60 (MLP), ROC-AUC 0.99.
 - [x] **Phase 3** — label-free DMoN community detection: backbone ROC-AUC **0.82**, NMI **0.105** (≈50× Louvain's 0.002); finding that MRO is a *local-geometry* signal, not topological modularity.
-- [ ] **Phase 4** — transfer across `samples3` chemistries; report + figures.
+- [x] **Phase 4** — cross-chemistry zero-shot transfer over 27 `samples3` alloys: a Cu–Zr-trained element-agnostic detector ranks icosahedra at ROC-AUC **0.96 (Ni–Zr) / 0.92 (Co–W) / 0.89 (Cu–Zr) / 0.70 (Cu–Zr–Al)**; ranking transfers, the decision threshold doesn't, and size-ratio matters more than element identity.
 
 ## Attribution
 
