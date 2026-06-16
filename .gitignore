@@ -5,3 +5,4 @@ results/*.log
 # raw thesis data is intentionally not tracked (size + attribution)
 data/
 *.lammpsTrj
+.ipynb_checkpoints/

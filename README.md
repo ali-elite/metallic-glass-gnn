@@ -4,6 +4,11 @@ A graph-learning reformulation of a B.Sc. thesis (Materials Science & Engineerin
 Sharif University of Technology; supervisor **Dr. Rouhollah Tavakoli**) on the
 local structure of Cu–Zr bulk metallic glasses.
 
+> 📓 **Start here:** [`metallic_glass_gnn.ipynb`](metallic_glass_gnn.ipynb) — a single,
+> self-contained notebook that walks through all three phases with the physics
+> motivation, the model maths, and honest discussion. It is executed end-to-end, so
+> every figure, table, and number renders inline on GitHub.
+
 ## Background: what the original thesis found
 
 The thesis tried to predict each atom's **Voronoi index** from the flat,
@@ -112,6 +117,7 @@ generated (reconstructed MD methodology).
 ## Layout
 
 ```
+metallic_glass_gnn.ipynb       # unified, executed walkthrough of Phases 1-3 (read this first)
 config.py                      # paths to the raw data
 src/data.py                    # parse LAMMPS dump / fo_list / nb_id; icosahedron labels
 src/graph.py                   # build atomic graph; physical (ground-truth) ICO communities
