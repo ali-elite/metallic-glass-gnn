@@ -110,33 +110,42 @@ method that produced the `samples2` labels — a [pyvoro](https://github.com/joe
 labeller (`src/voronoi.py`) **validated to reproduce `fo_list` perfect-ICO at
 F1 = 1.000**. To transfer at all, the model is made **element-agnostic**: each atom
 carries only its radius (+ the periodic kNN graph with RBF bond-distance edges), so
-the same Cu–Zr model applies to Co/W, Ni/Zr, Cu/Zr/Al. Source Cu–Zr test: ROC-AUC
-**0.985**, F1 0.85.
+the same Cu–Zr model applies to Co/W, Ni/Zr, Cu/Zr/Al. Numbers are **mean ± std
+over 5 source-model seeds** (LR 1e-3; the higher 5e-3 was unstable, swinging the
+ternary AUC 0.31–0.75 across seeds). Source Cu–Zr test: ROC-AUC **0.99**.
 
-| target family | members | zero-shot ROC-AUC (mean) |
-|---|---|---|
-| **Ni–Zr** (new element) | 46:54 → 64:36 | **0.96** |
-| **Co–W** (different alloy) | W 10–75 % | **0.92** |
-| **Cu–Zr** (new compositions) | 46:54 → 64:36 | 0.89 |
-| **Cu–Zr–Al** (added 3rd element) | Al 5–25 % | 0.70 |
+| target family | members | zero-shot ROC-AUC | in-domain oracle |
+|---|---|---|---|
+| **Cu–Zr** (new compositions) | 46:54 → 64:36 | **0.98 ± 0.01** | 0.98 |
+| **Ni–Zr** (new element) | 46:54 → 64:36 | **0.96 ± 0.02** | 0.97 |
+| **Co–W** (different alloy) | W 10–75 % | **0.89 ± 0.10** | 0.99 |
+| **Cu–Zr–Al** (ternary) | Al 5–25 % | **0.65 ± 0.14** | **0.93** |
 
 Honest reading (we separate *ranking* from *thresholded* classification):
 
-1. **Ranking transfers strongly; the threshold does not.** Zero-shot ROC-AUC stays
-   0.89–0.96 across new compositions, a new element, and an entirely different
-   alloy — within ~0.03–0.06 of an in-domain oracle (e.g. Ni–Zr 64:36 zero-shot
-   AUC 0.93 vs oracle 0.96; Co–W 50 % 0.91 vs 0.99). But perfect-ICO base rates
-   swing from 19 % (Cu–Zr) to 0–3 %, so F1 at the fixed 0.5 threshold collapses
-   where ICO is rare — the model still *ranks* icosahedral atoms correctly, it just
-   needs per-target re-calibration.
-2. **Size ratio matters more than element identity.** Ni–Zr (a *new* element)
-   transfers **better** than Cu–Zr–Al (the *same* base elements + Al), because
-   Ni ≈ Cu in size while Al introduces genuinely new intermediate-size local
-   environments. Co–W transfers well despite sharing no elements with the source.
-3. **Limits, stated plainly.** At ≥ 80 % W the perfect icosahedron essentially
-   vanishes (nothing to detect), and the detector hallucinates ICO far outside the
-   training regime. (`scripts/04_transfer.py`, `results/04_transfer.{json,png}`,
-   design in [`docs/phase4_transfer_design.md`](docs/phase4_transfer_design.md).)
+1. **Binary→binary transfer is strong and stable.** Zero-shot ROC-AUC is **0.98 ± 0.01**
+   (Cu–Zr, new compositions) and **0.96 ± 0.02** (Ni–Zr, a *new element*) — essentially
+   **matching in-domain oracles** (0.98, 0.97). Co–W, which shares *no* elements with
+   the source, still transfers well on average (**0.89**) but more variably (± 0.10).
+   The element-agnostic detector ranks icosahedra in unseen *binary* alloys nearly as
+   well as a model trained on them.
+2. **Adding a third element breaks transfer — and that is the interesting part.** The
+   ternary Cu–Zr–Al transfers poorly (**0.65 ± 0.14**), yet an **in-domain oracle reaches
+   0.93** there. So the icosahedron *is* learnable in the ternary; the binary-trained
+   model simply never saw three-element local environments. **Compositional novelty (a
+   new element type), not chemical distance, is what defeats zero-shot transfer** — a
+   completely different *binary* (Co–W) transfers far better than the *same* base
+   elements plus Al.
+3. **The 0.5 threshold doesn't transfer, but recalibration recovers it.** Perfect-ICO
+   base rates swing from 19 % (Cu–Zr) to 0–13 %, so F1 at the fixed threshold collapses
+   where ICO is rare; a **base-rate-matched threshold** (one scalar per target) lifts it
+   most of the way to the optimal — e.g. Co–W mean F1 0.14 → 0.56, Cu–Zr 0.49 → 0.67 —
+   confirming the ranking is sound and only calibration is off.
+4. **Limits, stated plainly.** Co–W and the ternary remain higher-variance across seeds
+   (± 0.10–0.14); at ≥ 80 % W the perfect icosahedron essentially vanishes (nothing to
+   detect) and the detector hallucinates ICO far outside the training regime.
+   (`scripts/04_transfer.py`, `results/04_transfer.{json,png}`, design in
+   [`docs/phase4_transfer_design.md`](docs/phase4_transfer_design.md).)
 
 ## Data
 
@@ -180,7 +189,7 @@ results/                       # figures + metrics JSON
 - [x] **Phase 1** — data pipeline, atomic graph, physical ICO-network ground truth.
 - [x] **Phase 2** — GNN node classifier (geometry → icosahedron): ICO-F1 0.90 vs 0.60 (MLP), ROC-AUC 0.99.
 - [x] **Phase 3** — label-free DMoN community detection: backbone ROC-AUC **0.82**, NMI **0.105** (≈50× Louvain's 0.002); finding that MRO is a *local-geometry* signal, not topological modularity.
-- [x] **Phase 4** — cross-chemistry zero-shot transfer over 27 `samples3` alloys: a Cu–Zr-trained element-agnostic detector ranks icosahedra at ROC-AUC **0.96 (Ni–Zr) / 0.92 (Co–W) / 0.89 (Cu–Zr) / 0.70 (Cu–Zr–Al)**; ranking transfers, the decision threshold doesn't, and size-ratio matters more than element identity.
+- [x] **Phase 4** — cross-chemistry zero-shot transfer over 27 `samples3` alloys (mean±std, 5 seeds): an element-agnostic Cu–Zr detector ranks icosahedra at ROC-AUC **0.98 (Cu–Zr) / 0.96 (Ni–Zr) / 0.89 (Co–W) / 0.65 (Cu–Zr–Al)** — binary→binary transfer ≈ in-domain, but adding a 3rd element (Cu–Zr–Al) breaks transfer (oracle 0.93): compositional novelty, not chemical distance, is the limit; threshold needs recalibration.
 
 ## Attribution
 

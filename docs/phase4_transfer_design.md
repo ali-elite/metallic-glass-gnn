@@ -85,3 +85,26 @@ across Al %, W %, and Cu:Zr ratio.
 `src.features` (`knn_periodic`, `rbf_expand`, `alignment_check`), `src.models`
 (`CGCNN`), `src.data.read_lammps_dump`, `src.graph`. New code is the pyvoro
 labeller and a small multi-chemistry loader.
+
+## Outcome (what we actually found, vs the plan)
+
+- **pyvoro validated** on `samples2`: perfect-ICO F1 = 1.000 (raw radical Voronoi,
+  no cutoff).
+- **Stability fix.** With the minimal radius-only features, LR 5e-3 made transfer
+  AUC swing wildly between seeds (Cu–Zr–Al 0.31–0.75; occasional Co-W collapses).
+  Dropping to **LR 1e-3** stabilised it (source test 0.99 either way). We report
+  **mean ± std over 5 source-model seeds**.
+- **Metrics.** Beyond ROC/PR-AUC and F1@0.5 we added two threshold diagnostics:
+  `f1_recal` (base-rate-matched threshold — uses only the target's overall ICO
+  fraction) and `f1_best` (best threshold, oracle upper bound). This separates
+  *ranking* quality from *threshold calibration*.
+- **Headline (5 seeds, LR 1e-3).** Source Cu–Zr 0.99. Zero-shot ROC-AUC:
+  Cu–Zr 0.98 ± 0.01, Ni–Zr 0.96 ± 0.02 (≈ in-domain oracles), Co–W 0.89 ± 0.10,
+  Cu–Zr–Al 0.65 ± 0.14.
+- **Main finding (revised from the plan's expectation).** Transfer does *not* simply
+  fade with chemical distance. Binary→binary transfer is excellent even when the
+  target shares no elements with the source (Co-W). What breaks zero-shot transfer
+  is **compositional novelty**: the ternary Cu–Zr–Al transfers poorly (0.65) yet is
+  *learnable in-domain* (oracle 0.93) — the binary-trained model has simply never
+  seen three-element local environments. The fixed 0.5 threshold does not transfer
+  (base rates 19 % → 0–13 %), but a base-rate-matched threshold recovers most F1.
