@@ -25,7 +25,7 @@ def load_samples2():
     types = d["types"].astype(int)
     radius = np.array([RADIUS[t] for t in types], dtype=float)
     y = is_perfect_icosahedron(vor).astype(np.int64)
-    return dict(pos=pos, L=L, types=types, radius=radius, y=y, nbrs=nbrs, N=N)
+    return dict(pos=pos, L=L, types=types, radius=radius, y=y, nbrs=nbrs, N=N, vor=vor)
 
 
 def _minimum_image(delta, L):
@@ -83,3 +83,30 @@ def rbf_expand(dist, n_rbf=16, cutoff=6.0):
     centers = np.linspace(0.0, cutoff, n_rbf, dtype=np.float32)
     gamma = (n_rbf / cutoff) ** 2
     return np.exp(-gamma * (dist[:, None] - centers[None, :]) ** 2).astype(np.float32)
+
+
+def rotation_invariant_features(pos, L, nbrs, radius):
+    """Per-atom rotation/translation-invariant local-geometry scalars (label-free):
+    coordination number, mean & std of bond length to face-sharing neighbours, and
+    the mean radius of those neighbours (local composition). Returns (N,4).
+
+    These describe the geometry/connectivity of the neighbour cloud, NOT the
+    Voronoi index breakdown <n3,n4,n5,n6,...> that defines the icosahedron label.
+    (Coordination equals the total face count, i.e. the graph degree, which is
+    intrinsic to the Voronoi graph and on its own a near-chance predictor of the
+    label; the discriminative signal is bond regularity, derived from positions.)
+    """
+    N = pos.shape[0]
+    coord = np.zeros(N, np.float32)
+    mean_bond = np.zeros(N, np.float32)
+    std_bond = np.zeros(N, np.float32)
+    mean_nbr_radius = np.zeros(N, np.float32)
+    for i, nb in enumerate(nbrs):
+        nb = [j for j in nb if 0 <= j < N and j != i]
+        coord[i] = len(nb)
+        if nb:
+            dd = np.linalg.norm(_minimum_image(pos[nb] - pos[i], L), axis=1)
+            mean_bond[i] = dd.mean()
+            std_bond[i] = dd.std()
+            mean_nbr_radius[i] = radius[nb].mean()
+    return np.stack([coord, mean_bond, std_bond, mean_nbr_radius], axis=1)

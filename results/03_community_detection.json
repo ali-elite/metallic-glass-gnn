@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "seeds": 3,
+    "epochs": 400,
+    "K": 16,
+    "n5_min": 10,
+    "collapse_w": 1.0,
+    "entropy_w": 0.1,
+    "feature_dim": 7,
+    "n_atoms": 10000,
+    "n_edges": 68586
+  },
+  "DMoN": {
+    "n_clusters": {
+      "mean": 16.0,
+      "std": 0.0
+    },
+    "modularity": {
+      "mean": 0.2298514566904788,
+      "std": 0.007318660975532502
+    },
+    "nmi_backbone": {
+      "mean": 0.10483306397481833,
+      "std": 0.001396444890708302
+    },
+    "ari_backbone": {
+      "mean": 0.03849208181655576,
+      "std": 0.0005176620163943481
+    },
+    "nmi_components": {
+      "mean": 0.10672581789846354,
+      "std": 0.0013528783176345288
+    },
+    "ari_components": {
+      "mean": 0.03879291694239084,
+      "std": 0.0005126300976169253
+    },
+    "backbone_f1": {
+      "mean": 0.6692686570920419,
+      "std": 0.0027310672046071812
+    },
+    "backbone_acc": {
+      "mean": 0.7615333333333334,
+      "std": 0.003104119127152727
+    },
+    "backbone_auc": {
+      "mean": 0.82203619575303,
+      "std": 0.0017165831064246719
+    },
+    "backbone_auc_soft": {
+      "mean": 0.8302471027468822,
+      "std": 0.0008029976439679609
+    }
+  },
+  "Louvain": {
+    "n_clusters": 20,
+    "modularity": 0.7249381591913859,
+    "nmi_backbone": 0.002353261302253887,
+    "ari_backbone": 0.0007198235010569389,
+    "nmi_components": 0.0036159869464025838,
+    "ari_components": 0.0007312530499083086,
+    "backbone_f1": 0.07245039224734656,
+    "backbone_acc": 0.598,
+    "backbone_auc": 0.5519717728868698
+  },
+  "kmeans": {
+    "n_clusters": 16,
+    "modularity": 0.019262319013962612,
+    "nmi_backbone": 0.10442360896024348,
+    "ari_backbone": 0.03599940048905391,
+    "nmi_components": 0.10534318337591002,
+    "ari_components": 0.0360460771800099,
+    "backbone_f1": 0.6874267100977199,
+    "backbone_acc": 0.7601,
+    "backbone_auc": 0.824887169945515
+  },
+  "kmeans_chem_only": {
+    "n_clusters": 2,
+    "modularity": -0.08288478585692519,
+    "nmi_backbone": 0.0007592507716002637,
+    "ari_backbone": 0.00403403501506191,
+    "nmi_components": 0.0011921240403072605,
+    "ari_components": 0.004096727246521047,
+    "backbone_f1": 0.0,
+    "backbone_acc": 0.5958,
+    "backbone_auc": 0.5155467291326271
+  },
+  "reference": {
+    "backbone_partition_modularity": 0.1347342882670024,
+    "backbone_rate": 0.4042
+  },
+  "subdomains": {
+    "backbone_nodes": 4042,
+    "backbone_edges": 15666,
+    "louvain_subdomains": 34,
+    "louvain_modularity": 0.8801803177360856,
+    "dmon_subdomains": 8,
+    "dmon_modularity": 0.3315017711665787
+  }
+}
