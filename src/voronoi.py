@@ -73,6 +73,15 @@ def _row_mode(rows):
     return np.array(best, dtype=int), top
 
 
+def voronoi_index_frames(frames, L, radii, dispersion=4.0):
+    """Stack `voronoi_index` over a list of (N,3) position arrays (same L, radii).
+
+    Returns (F, N, 6). This is the teacher signal for Phase 5; pair with
+    `consensus_index` to get the time-stable label. Needs pyvoro.
+    """
+    return np.stack([voronoi_index(p, L, radii, dispersion) for p in frames])
+
+
 def consensus_index(frame_indices):
     """Aggregate per-frame Voronoi indices into a time-stable consensus.
 
