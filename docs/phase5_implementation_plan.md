@@ -12,7 +12,7 @@
 - Spec: [`docs/phase5_robust_voronoi_design.md`](phase5_robust_voronoi_design.md).
 - Run tests from the repo root with `python3 -m pytest` (the `-m` puts the repo root on `sys.path` so `from src...` resolves; `src/` is a package).
 - Pure-numpy/torch unit tests need **no data and no pyvoro**. Tests that need them are guarded with `pytest.importorskip("pyvoro")` / a `SAMPLES1` existence skip, so the core suite runs anywhere.
-- Commit messages follow the project's `Phase 5: …` style and end with the `Co-Authored-By` trailer.
+- Commit messages follow the project's `Phase 5: …` style.
 - Work happens on branch `phase5-robust-voronoi` (already created).
 
 ---
@@ -144,7 +144,7 @@ Expected: PASS (4 passed).
 
 ```bash
 git add src/voronoi.py tests/test_consensus.py
-git commit -m "$(printf 'Phase 5: consensus Voronoi labeller (mode + instability)\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: consensus Voronoi labeller (mode + instability)')"
 ```
 
 ---
@@ -205,7 +205,7 @@ Expected: PASS (1 passed), or SKIP if pyvoro is missing.
 
 ```bash
 git add src/voronoi.py tests/test_voronoi_frames.py
-git commit -m "$(printf 'Phase 5: per-frame Voronoi over a trajectory\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: per-frame Voronoi over a trajectory')"
 ```
 
 ---
@@ -298,7 +298,7 @@ Expected: PASS (4 passed).
 
 ```bash
 git add src/features.py tests/test_features_robust.py
-git commit -m "$(printf 'Phase 5: thermal sigma + jitter augmentation\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: thermal sigma + jitter augmentation')"
 ```
 
 ---
@@ -369,7 +369,7 @@ Expected: PASS (5 passed; loader test runs because `samples1` is present).
 
 ```bash
 git add src/features.py tests/test_features_robust.py
-git commit -m "$(printf 'Phase 5: samples1 multi-frame loader\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: samples1 multi-frame loader')"
 ```
 
 ---
@@ -491,7 +491,7 @@ Expected: PASS (4 passed).
 
 ```bash
 git add src/models.py tests/test_models_regressor.py
-git commit -m "$(printf 'Phase 5: CGCNN regressor + Voronoi count loss\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: CGCNN regressor + Voronoi count loss')"
 ```
 
 ---
@@ -589,7 +589,7 @@ Expected: PASS (5 passed).
 
 ```bash
 git add src/metrics.py tests/test_metrics.py
-git commit -m "$(printf 'Phase 5: pure Voronoi-index metrics (flip-rate, exact match, MAE)\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: pure Voronoi-index metrics (flip-rate, exact match, MAE)')"
 ```
 
 ---
@@ -838,7 +838,7 @@ Expected: prints the key list, no assertion error.
 
 ```bash
 git add scripts/05_robust_voronoi.py
-git commit -m "$(printf 'Phase 5: robust-Voronoi runner (train + flip-rate/sigma-sweep eval)\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: robust-Voronoi runner (train + flip-rate/sigma-sweep eval)')"
 ```
 
 ---
@@ -940,7 +940,7 @@ cells; only run the new Phase-5 cell.
 
 ```bash
 git add README.md metallic_glass_gnn.ipynb
-git commit -m "$(printf 'Unify project framing; add Phase 5 to README and notebook\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Unify project framing; add Phase 5 to README and notebook')"
 ```
 
 ---
@@ -981,7 +981,7 @@ printf '\n# Phase-5 derived Voronoi-label cache\nresults/05_voronoi_frames.npy\n
 
 ```bash
 git add results/05_robust_voronoi.json results/05_robust_voronoi.png README.md metallic_glass_gnn.ipynb .gitignore
-git commit -m "$(printf 'Phase 5: full run results + README/notebook numbers\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git commit -m "$(printf 'Phase 5: full run results + README/notebook numbers')"
 ```
 
 - [ ] **Step 6: Finish the branch**
