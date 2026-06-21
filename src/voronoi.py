@@ -13,6 +13,7 @@ Requires `pyvoro` (a Voro++ binding): `pip install pyvoro`. Only Phase 4 needs i
 Phases 1-3 stay pure PyTorch / NetworkX / scikit-learn.
 """
 import numpy as np
+from collections import Counter
 
 
 def voronoi_index(pos, L, radii, dispersion=4.0):
@@ -57,3 +58,40 @@ def validate_against_samples2():
         like_agreement=float(like_agree),
         full_index_match=float((idx == d["vor"]).all(1).mean()),
     )
+
+
+def _row_mode(rows):
+    """Most common row of an (F,K) integer array, ties broken toward row 0.
+
+    Returns (mode_row (K,) int array, count). Used to aggregate a per-atom Voronoi
+    index across trajectory frames into a single time-stable consensus value.
+    """
+    keys = [tuple(int(v) for v in r) for r in np.asarray(rows)]
+    c = Counter(keys)
+    top = c.most_common(1)[0][1]
+    best = keys[0] if c[keys[0]] == top else next(k for k in keys if c[k] == top)
+    return np.array(best, dtype=int), top
+
+
+def consensus_index(frame_indices):
+    """Aggregate per-frame Voronoi indices into a time-stable consensus.
+
+    frame_indices: (F, N, 6) per-frame indices n3..n8 (e.g. stacked `voronoi_index`).
+    Returns dict:
+      label       (N,4) int  -- per-atom mode of <n3,n4,n5,n6> across frames
+      total       (N,)  int  -- per-atom mode coordination (full face count)
+      instability (N,)  float-- 1 - (mode-frame-count / F): Voro++'s thermal jitter
+    """
+    fi = np.asarray(frame_indices)
+    F, N, _ = fi.shape
+    coord = fi.sum(axis=2)                              # (F,N) full coordination
+    label = np.zeros((N, 4), dtype=int)
+    total = np.zeros(N, dtype=int)
+    instab = np.zeros(N, dtype=float)
+    for i in range(N):
+        lab, cnt = _row_mode(fi[:, i, :4])
+        label[i] = lab
+        instab[i] = 1.0 - cnt / F
+        tot, _ = _row_mode(coord[:, i].reshape(F, 1))
+        total[i] = int(tot[0])
+    return dict(label=label, total=total, instability=instab)
