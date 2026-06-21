@@ -127,3 +127,28 @@ def rotation_invariant_features(pos, L, nbrs, radius):
             std_bond[i] = dd.std()
             mean_nbr_radius[i] = radius[nb].mean()
     return np.stack([coord, mean_bond, std_bond, mean_nbr_radius], axis=1)
+
+
+def thermal_sigma(frames, L):
+    """RMS per-atom displacement (Angstrom) between consecutive frames.
+
+    `frames` is a list of (N,3) wrapped positions. Minimum-image corrected so an
+    atom crossing a periodic wall counts its true (small) displacement. This is the
+    physical scale for the Phase-5 jitter augmentation.
+    """
+    sq = []
+    for a, b in zip(frames[:-1], frames[1:]):
+        d = _minimum_image(np.asarray(b) - np.asarray(a), L)
+        sq.append((d ** 2).sum(axis=1))             # per-atom squared displacement
+    return float(np.sqrt(np.concatenate(sq).mean()))
+
+
+def jitter(pos, sigma, L, rng):
+    """Add isotropic Gaussian displacement N(0, sigma^2) per coordinate, re-wrap.
+
+    sigma<=0 returns `pos` unchanged. `rng` is a numpy Generator (seeded by caller)
+    so augmentation is reproducible.
+    """
+    if sigma <= 0:
+        return pos
+    return (pos + rng.normal(0.0, sigma, size=np.asarray(pos).shape)) % L
