@@ -186,3 +186,54 @@ def voronoi_loss(counts, total, y_counts, y_total, w_total=0.3, w_sum=0.1):
     l_sum = (counts.sum(dim=1) - total).abs().mean()
     loss = l_counts + w_total * l_total + w_sum * l_sum
     return loss, l_counts, l_total, l_sum
+
+
+# --------------------------------------------------------------------------- #
+#  Phase 5: per-count classification head (jitter-stable argmax)              #
+# --------------------------------------------------------------------------- #
+class CGCNNCountClassifier(nn.Module):
+    """CGCNN trunk + four per-count classification heads -> <n3,n4,n5,n6>, each a
+    softmax over counts 0..max_count-1. The predicted index is argmax per head, which
+    is locally constant in the inputs -> stable under thermal jitter (unlike rounding
+    a regressor). Shares `CGConv` with the other models; per-head entropy is a
+    per-atom instability signal."""
+    def __init__(self, in_dim, edge_dim, hidden=128, n_layers=4, max_count=16, p=0.2):
+        super().__init__()
+        self.max_count = max_count
+        self.embed = nn.Linear(in_dim, hidden)
+        self.convs = nn.ModuleList([CGConv(hidden, edge_dim) for _ in range(n_layers)])
+        self.heads = nn.ModuleList([
+            nn.Sequential(nn.Linear(hidden, hidden), nn.Softplus(), nn.Dropout(p),
+                          nn.Linear(hidden, max_count))
+            for _ in range(4)
+        ])
+
+    def forward(self, x, edge_index, edge_attr):
+        h = F.softplus(self.embed(x))
+        for conv in self.convs:
+            h = conv(h, edge_index, edge_attr)
+        return [head(h) for head in self.heads]         # list of 4 (N, max_count) logits
+
+
+def count_ce_loss(logits, y_counts):
+    """Sum of cross-entropies over the four per-count heads.
+
+    logits: list of 4 (N,C) logit tensors; y_counts: (N,4) integer targets, clamped
+    to [0, C-1] so rare large counts fold into the top bin rather than erroring."""
+    C = logits[0].shape[1]
+    yc = y_counts.clamp(0, C - 1).long()
+    return sum(F.cross_entropy(logits[i], yc[:, i]) for i in range(4))
+
+
+def consistency_loss(logits1, logits2):
+    """Symmetric KL between two per-count predictive distributions, one per jittered
+    view of the same atoms, summed over the four heads. Zero iff the views give
+    identical distributions; CE-scaled magnitude with sharp gradients, so it drives
+    argmax agreement (temporal stability) under thermal jitter far more strongly than
+    an MSE on probabilities. Unsupervised (all atoms) -> the flip-rate lever."""
+    total = logits1[0].new_zeros(())
+    for a, b in zip(logits1, logits2):
+        la, lb = F.log_softmax(a, dim=1), F.log_softmax(b, dim=1)
+        total = total + 0.5 * (F.kl_div(la, lb, reduction="batchmean", log_target=True)
+                               + F.kl_div(lb, la, reduction="batchmean", log_target=True))
+    return total
