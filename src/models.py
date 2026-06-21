@@ -144,3 +144,45 @@ def dmon_loss(assign, edge_index, deg, m, collapse_w=1.0, entropy_w=0.0):
         entropy = -(assign * torch.log(assign + 1e-9)).sum(1).mean()
         loss = loss + entropy_w * entropy
     return loss, modularity, collapse, entropy
+
+
+# --------------------------------------------------------------------------- #
+#  Phase 5: CGCNN regression head + Voronoi count loss                         #
+# --------------------------------------------------------------------------- #
+class CGCNNRegressor(nn.Module):
+    """CGCNN trunk + regression head -> 4 non-negative Voronoi counts <n3,n4,n5,n6>
+    plus an auxiliary coordination total. Shares `CGConv` with the Phase-2 `CGCNN`
+    classifier, which is left untouched. Geometry enters via the edge RBF features,
+    so the model is rotation/translation-invariant (half of thermal robustness)."""
+    def __init__(self, in_dim, edge_dim, hidden=64, n_layers=3, p=0.2):
+        super().__init__()
+        self.embed = nn.Linear(in_dim, hidden)
+        self.convs = nn.ModuleList([CGConv(hidden, edge_dim) for _ in range(n_layers)])
+        self.counts = nn.Sequential(
+            nn.Linear(hidden, hidden), nn.Softplus(), nn.Dropout(p),
+            nn.Linear(hidden, 4),
+        )
+        self.total = nn.Sequential(
+            nn.Linear(hidden, hidden), nn.Softplus(), nn.Dropout(p),
+            nn.Linear(hidden, 1),
+        )
+
+    def forward(self, x, edge_index, edge_attr):
+        h = F.softplus(self.embed(x))
+        for conv in self.convs:
+            h = conv(h, edge_index, edge_attr)
+        counts = F.softplus(self.counts(h))             # (N,4) >= 0
+        total = F.softplus(self.total(h)).squeeze(1)    # (N,)  >= 0
+        return counts, total
+
+
+def voronoi_loss(counts, total, y_counts, y_total, w_total=0.3, w_sum=0.1):
+    """Smooth-L1 on the 4 counts and the coordination total, plus a soft penalty
+    tying sum(counts) to the predicted total (pushes the unmodelled n7/n8 slack to 0).
+
+    Returns (loss, l_counts, l_total, l_sum)."""
+    l_counts = F.smooth_l1_loss(counts, y_counts)
+    l_total = F.smooth_l1_loss(total, y_total)
+    l_sum = (counts.sum(dim=1) - total).abs().mean()
+    loss = l_counts + w_total * l_total + w_sum * l_sum
+    return loss, l_counts, l_total, l_sum
