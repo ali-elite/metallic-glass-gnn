@@ -152,3 +152,20 @@ def jitter(pos, sigma, L, rng):
     if sigma <= 0:
         return pos
     return (pos + rng.normal(0.0, sigma, size=np.asarray(pos).shape)) % L
+
+
+def load_samples1_frames():
+    """Load the samples1 trajectory (Cu64Zr36, 13500 atoms, 11 consecutive frames).
+
+    Returns dict(frames=list of (N,3) wrapped positions, L=(3,), types, radius, N).
+    Box is fixed across these equilibrated frames, so a single L is returned. Same
+    Cu/Zr radii as samples2 (RADIUS).
+    """
+    from src.data import read_lammps_frames
+    frs = read_lammps_frames(os.path.join(config.SAMPLES1, "LAMMPS_OUTPUT.lammpsTrj"))
+    box0 = frs[0]["box"]
+    L = (box0[:, 1] - box0[:, 0]).astype(float)
+    types = frs[0]["types"].astype(int)
+    radius = np.array([RADIUS[t] for t in types], dtype=float)
+    frames = [((fr["pos"] - fr["box"][:, 0]) % L).astype(float) for fr in frs]
+    return dict(frames=frames, L=L, types=types, radius=radius, N=frs[0]["natoms"])
