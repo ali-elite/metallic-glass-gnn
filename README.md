@@ -40,12 +40,12 @@ neighbours; mean bond 2.95 Å). Test set = 1,500 held-out atoms (19% positive):
 
 | model | acc | ICO-F1 | macro-F1 | ROC-AUC | PR-AUC |
 |---|---|---|---|---|---|
-| MLP (thesis-style flat 20-NN vector) | 0.835 | 0.604 | 0.750 | 0.899 | 0.630 |
+| MLP (flat 20-NN vector baseline) | 0.835 | 0.604 | 0.750 | 0.899 | 0.630 |
 | **CGCNN (distance-aware GNN)** | **0.964** | **0.904** | **0.941** | **0.994** | **0.978** |
 
 The permutation-invariant, geometry-aware GNN raises minority-class F1 from
-**0.60 → 0.90** on identical data and splits — confirming the thesis's own
-diagnosis that the *architecture*, not the physics, was the bottleneck.
+**0.60 → 0.90** on identical data and splits — confirming that the *architecture*,
+not the physics, was the bottleneck.
 (`scripts/02_node_classification.py`; transductive on one snapshot —
 cross-snapshot / cross-system generalisation is Phase 4.)
 
