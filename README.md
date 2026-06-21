@@ -147,10 +147,11 @@ index is unchanged vs the σ = 0 reference (higher = more stable):
 | **learned GNN** | **0.78** | **0.70** | **0.65** | **0.60** | **0.52** |
 | Voro++ | 0.75 | 0.61 | 0.56 | 0.51 | 0.44 |
 
-Across the whole realistic thermal-vibration range the GNN holds its index **~9 points
-more often** than Voro++, and the margin *grows* with displacement. (At the sub-thermal
-0.01 Å spacing of the raw frames the two are tied — flip-rate 0.214 vs 0.212 — that
-scale is finer than thermal motion, so there is essentially nothing to beat.)
+From 0.05 Å outward the GNN holds its index more often than Voro++ at **every** scale —
+by **~8–9 points** through the core thermal range (e.g. 0.65 vs 0.56 at 0.10 Å; +3 already
+at 0.05 Å). (At the sub-thermal 0.01 Å spacing of the raw frames the two are tied —
+flip-rate 0.214 vs 0.212 — that scale is finer than thermal motion, so there is
+essentially nothing to beat.)
 
 **Accuracy is retained where it matters.** The same model recovers the perfect
 icosahedron at **ICO-F1 0.72**, and — trained on `samples1` only — transfers to the

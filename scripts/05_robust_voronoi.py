@@ -1,9 +1,10 @@
 """Phase 5 — a robust, learned Voronoi index that replaces Voro++ at inference.
 
-Distils Voro++ (over the 11 samples1 frames) into a CGCNN regressor that predicts
-<n3,n4,n5,n6> from coordinates, trained on the time-stable consensus and augmented
-with physically-scaled thermal jitter, then shows a lower temporal flip-rate than
-raw Voro++.
+Distils Voro++ (over the 11 samples1 frames) into a per-count CLASSIFICATION CGCNN
+that predicts <n3,n4,n5,n6> from coordinates, trained on the time-stable consensus
+with a temporal-consistency regulariser (jittered vs clean view). The learned index
+is MORE stable than raw Voro++ under physical thermal jitter (the sigma-sweep) at the
+icosahedron level; the sub-thermal 0.01 A frame-to-frame flip-rate is a tie.
 
 Run:  python3 scripts/05_robust_voronoi.py            # full
       python3 scripts/05_robust_voronoi.py --smoke     # fast subsample / few epochs
