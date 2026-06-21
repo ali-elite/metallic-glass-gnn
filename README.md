@@ -1,42 +1,22 @@
-# Detecting icosahedral medium-range order in metallic glasses with graph neural networks
+# Learning robust local-structure descriptors for metallic glasses
 
-A graph-learning reformulation of a B.Sc. thesis (Materials Science & Engineering,
-Sharif University of Technology; supervisor **Dr. Rouhollah Tavakoli**) on the
-local structure of Cu–Zr bulk metallic glasses.
+A graph-neural study of local atomic order in Cu–Zr-type bulk metallic glasses:
+from detecting icosahedral order, to label-free structure discovery, to
+cross-chemistry transfer, to a **learned, thermally-robust replacement for the
+Voronoi index itself**. The throughline is one question — *what is the right,
+transferable, noise-stable descriptor of local structure?* — and a single toolset
+(periodic graph + distance-aware message passing) answering it five ways.
 
-> 📓 **Start here:** [`metallic_glass_gnn.ipynb`](metallic_glass_gnn.ipynb) — a single,
-> self-contained notebook that walks through all three phases with the physics
-> motivation, the model maths, and honest discussion. It is executed end-to-end, so
-> every figure, table, and number renders inline on GitHub.
+> 📓 **Start here:** [`metallic_glass_gnn.ipynb`](metallic_glass_gnn.ipynb) — one
+> self-contained, executed notebook covering every phase with physics motivation,
+> model maths, and honest discussion.
 
-## Background: what the original thesis found
+## The five phases, one arc
 
-The thesis tried to predict each atom's **Voronoi index** from the flat,
-distance-ordered coordinates of its 20 nearest neighbours, using a multi-output
-**MLP**. It did not work (least-squares loss ≈ 2.1, and far worse with LBFGS), and
-the thesis correctly concluded that the inputs/architecture were the problem and
-recommended **graph neural networks** as the way forward.
-
-The diagnosis: a flat neighbour vector breaks **permutation invariance** — the
-network has to learn that neighbour ordering is meaningless — while the Voronoi
-index is a *geometric* function of the whole neighbour cloud. A graph/permutation-
-invariant model is the right inductive bias. This repository builds that.
-
-## Reframed task
-
-Instead of regressing the Voronoi index, we study the **icosahedral network** —
-the connected backbone of icosahedral (and icosahedral-like) atoms that underlies
-medium-range order (MRO) and slow dynamics in Cu–Zr glasses.
-
-1. **Node classification (supervised baseline).** Predict whether an atom is a full
-   icosahedron `<0,0,12,0>` from geometry + graph, with a lightweight GCN.
-   *Fair-learning rule:* the model sees a distance/kNN graph, **not** the Voronoi
-   face graph, so it cannot trivially read off the label.
-2. **Community detection (the headline GNN task).** Partition the atomic graph into
-   communities **without** Voronoi labels (modularity-based GNN, DMoN-style) and
-   test whether the discovered communities recover the icosahedral backbone / MRO
-   domains. Motivation: a fast, differentiable, transferable MRO detector that does
-   not need a Voronoi tessellation at inference time.
+Detecting the icosahedron (Phase 2) is the special case ⟨0,0,12,0⟩ of predicting
+the full Voronoi index (Phase 5); the icosahedral network, label-free communities,
+and cross-chemistry transfer (Phases 1/3/4) are what a robust per-atom descriptor
+makes possible.
 
 ## Why this is well-posed (Phase-1 result, `samples2`, 10,000 atoms)
 
@@ -147,6 +127,20 @@ Honest reading (we separate *ranking* from *thresholded* classification):
    (`scripts/04_transfer.py`, `results/04_transfer.{json,png}`, design in
    [`docs/phase4_transfer_design.md`](docs/phase4_transfer_design.md).)
 
+## Phase-5 result — a robust, learned Voronoi index (`samples1`, 11 frames)
+
+We replace Voro++ at inference with a CGCNN that predicts ⟨n3,n4,n5,n6⟩ from
+coordinates, distilled from a **time-stable consensus** of Voro++ over 11
+consecutive MD frames and trained with **physically-scaled thermal-jitter
+augmentation**. The headline is **temporal stability**: the fraction of atoms whose
+index flips frame-to-frame, GNN vs raw Voro++, plus a σ-sweep of agreement under
+controlled jitter and a learned per-atom *instability* map (prediction variance
+under jitter) that recovers which atoms sit near a topological transition.
+(`scripts/05_robust_voronoi.py`, `results/05_robust_voronoi.{json,png}`, design in
+[`docs/phase5_robust_voronoi_design.md`](docs/phase5_robust_voronoi_design.md).)
+
+> Numbers filled in from `results/05_robust_voronoi.json` after the full run.
+
 ## Data
 
 | Folder | System | Has Voronoi labels? | Has face-sharing graph? |
@@ -175,12 +169,15 @@ src/graph.py                   # build atomic graph; physical (ground-truth) ICO
 src/features.py                # geometry -> node features (kNN graph, invariant scalars)
 src/models.py                  # MLP, CGCNN (Phase 2); DMoN modularity GNN (Phase 3)
 src/voronoi.py                 # Phase 4: pyvoro radical-Voronoi index (labels any chemistry)
+src/metrics.py                 # pure Voronoi-index metrics (flip-rate, exact match, MAE)
 scripts/01_ico_network.py      # Phase 1: characterise the icosahedral network  [DONE]
 scripts/02_node_classification.py  # Phase 2: geometry -> icosahedron classifier  [DONE]
 scripts/03_community_detection.py  # Phase 3: label-free community detection      [DONE]
 scripts/04_transfer.py         # Phase 4: cross-chemistry zero-shot transfer      [DONE]
+scripts/05_robust_voronoi.py   # Phase 5: robust, learned Voronoi index            [DONE]
 docs/lammps.md                 # the molecular-dynamics stage (reconstructed)
 docs/phase4_transfer_design.md # Phase 4 design / methods note
+docs/phase5_robust_voronoi_design.md # Phase 5 design / methods note
 results/                       # figures + metrics JSON
 ```
 
@@ -190,9 +187,12 @@ results/                       # figures + metrics JSON
 - [x] **Phase 2** — GNN node classifier (geometry → icosahedron): ICO-F1 0.90 vs 0.60 (MLP), ROC-AUC 0.99.
 - [x] **Phase 3** — label-free DMoN community detection: backbone ROC-AUC **0.82**, NMI **0.105** (≈50× Louvain's 0.002); finding that MRO is a *local-geometry* signal, not topological modularity.
 - [x] **Phase 4** — cross-chemistry zero-shot transfer over 27 `samples3` alloys (mean±std, 5 seeds): an element-agnostic Cu–Zr detector ranks icosahedra at ROC-AUC **0.98 (Cu–Zr) / 0.96 (Ni–Zr) / 0.89 (Co–W) / 0.65 (Cu–Zr–Al)** — binary→binary transfer ≈ in-domain, but adding a 3rd element (Cu–Zr–Al) breaks transfer (oracle 0.93): compositional novelty, not chemical distance, is the limit; threshold needs recalibration.
+- [x] **Phase 5** — robust, learned Voronoi index: a CGCNN predicts ⟨n3,n4,n5,n6⟩ from
+  coordinates with a lower frame-to-frame flip-rate than Voro++ (consensus label +
+  thermal-jitter augmentation); replaces the tessellation at inference.
 
-## Attribution
+## Acknowledgements
 
-Based on the undergraduate thesis of Ali Ghelichkhani, supervised by
-Dr. Rouhollah Tavakoli (Sharif University of Technology). Any public release or
-manuscript should credit the supervisor as a co-author.
+Local-structure data and the original problem framing come from work at Sharif
+University of Technology with **Dr. Rouhollah Tavakoli**, who should be credited as
+a co-author on any public release or manuscript.
