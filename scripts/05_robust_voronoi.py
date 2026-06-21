@@ -17,23 +17,41 @@ import numpy as np
 import torch
 from sklearn.metrics import f1_score
 from scipy.stats import spearmanr
+from scipy.spatial import cKDTree
 
 import config
 from src.features import (load_samples1_frames, knn_periodic, rbf_expand,
                           thermal_sigma, jitter)
 from src.voronoi import voronoi_index, voronoi_index_frames, consensus_index
-from src.models import CGCNNRegressor, voronoi_loss
+from src.models import CGCNNCountClassifier, count_ce_loss, consistency_loss
 from src.metrics import ico_from_counts, flip_rate, exact_match, per_count_mae
 
 EDGE_DIM = 16
 K = 20
+DEBYE_WALLER = 0.12   # ~physical 1D thermal RMS displacement (A); floor for jitter aug
+
+
+def node_features(pos, L, radii, k=K, shell=3.6):
+    """Per-atom rotation/translation-invariant geometry from the kNN cloud (coords
+    only -- no Voronoi, so it stays usable at inference): radius, first-shell
+    coordination, neighbour bond-length mean/std/min, and local mean neighbour radius."""
+    tree = cKDTree(pos, boxsize=L)
+    dist, idx = tree.query(pos, k=k + 1)            # (N,k+1); col 0 is self
+    d = dist[:, 1:]                                 # (N,k) neighbour distances
+    nbr_r = radii[idx[:, 1:]]                       # (N,k) neighbour radii
+    coord = (d < shell).sum(1)                      # first-shell coordination
+    feats = np.stack([radii, coord, d.mean(1), d.std(1), d[:, 0], nbr_r.mean(1)],
+                     axis=1).astype(np.float32)     # (N,6)
+    mu, sd = feats.mean(0), feats.std(0) + 1e-6
+    return ((feats - mu) / sd).astype(np.float32)
 
 
 def build_inputs(pos, L, radii, k=K):
-    """Coords -> (x, edge_index, edge_attr) tensors. Radius-only node features."""
+    """Coords -> (x, edge_index, edge_attr) tensors. Rotation-invariant node geometry
+    (radius, coordination, bond-length stats) + RBF bond-distance edges."""
     ei, ed = knn_periodic(pos, L, k)
     eattr = rbf_expand(ed, n_rbf=EDGE_DIM, cutoff=6.0)
-    x = ((radii - radii.mean()) / (radii.std() + 1e-6)).astype(np.float32)[:, None]
+    x = node_features(pos, L, radii, k)
     return torch.from_numpy(x), torch.from_numpy(ei), torch.from_numpy(eattr)
 
 
@@ -70,23 +88,26 @@ def prepare_data(smoke=False):
 
 
 def predict_index(model, pos, L, radii):
+    """argmax per count head -> (N,4) integer index. argmax is locally constant in
+    the inputs, so the predicted index is stable under thermal jitter."""
     model.eval()
     with torch.no_grad():
-        counts, _ = model(*build_inputs(pos, L, radii))
-    return np.rint(counts.numpy()).astype(int)          # (N,4)
+        logits = model(*build_inputs(pos, L, radii))
+    return torch.stack([lg.argmax(1) for lg in logits], dim=1).numpy().astype(int)
 
 
-def train(data, epochs=200, lr=1e-3, sigma_mult=3.0, hidden=64, seed=0, smoke=False):
+def train(data, epochs=100, lr=1e-3, sigma_mult=3.0, hidden=128, n_layers=4,
+          lam_cons=4.0, seed=0, smoke=False):
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     frames, L, radii, N = data["frames"], data["L"], data["radii"], data["N"]
-    y_c = torch.from_numpy(data["label"].astype(np.float32))
-    y_t = torch.from_numpy(data["total"].astype(np.float32))
+    y_c = torch.from_numpy(data["label"]).long()        # (N,4) integer count targets
     tr, va, te = split_atoms(N, seed)
     tr_t, va_t = torch.from_numpy(tr), torch.from_numpy(va)
     base = frames[0]
-    sigma_max = sigma_mult * data["sigma"]
-    model = CGCNNRegressor(in_dim=1, edge_dim=EDGE_DIM, hidden=hidden, n_layers=3)
+    sigma_max = max(sigma_mult * data["sigma"], DEBYE_WALLER)   # exercise physical thermal motion
+    in_dim = build_inputs(base, L, radii)[0].shape[1]
+    model = CGCNNCountClassifier(in_dim=in_dim, edge_dim=EDGE_DIM, hidden=hidden, n_layers=n_layers)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     if smoke:
         epochs = 5
@@ -94,17 +115,23 @@ def train(data, epochs=200, lr=1e-3, sigma_mult=3.0, hidden=64, seed=0, smoke=Fa
     for ep in range(epochs):
         model.train()
         s = float(rng.uniform(0.0, sigma_max))          # physically-scaled jitter
-        x, ei, ea = build_inputs(jitter(base, s, L, rng), L, radii)
-        counts, total = model(x, ei, ea)
-        loss, *_ = voronoi_loss(counts[tr_t], total[tr_t], y_c[tr_t], y_t[tr_t])
+        logits_j = model(*build_inputs(jitter(base, s, L, rng), L, radii))   # jittered view
+        logits_c = model(*build_inputs(base, L, radii))                      # clean view
+        ce = count_ce_loss([lg[tr_t] for lg in logits_j], y_c[tr_t])         # accuracy (train atoms)
+        cons = consistency_loss(logits_j, logits_c)      # all atoms: same index under jitter
+        loss = ce + lam_cons * cons
         opt.zero_grad(); loss.backward(); opt.step()
-        model.eval()
-        with torch.no_grad():
-            c0, t0 = model(*build_inputs(base, L, radii))
-            vl, *_ = voronoi_loss(c0[va_t], t0[va_t], y_c[va_t], y_t[va_t])
-        if float(vl) < best:
-            best = float(vl)
-            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        if (ep + 1) % 5 == 0 or ep == epochs - 1:        # checkpoint on clean val CE
+            model.eval()
+            with torch.no_grad():
+                lc = model(*build_inputs(base, L, radii))
+                vl = float(count_ce_loss([lg[va_t] for lg in lc], y_c[va_t]))
+            if vl < best:
+                best = vl
+                best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            if not smoke and (ep + 1) % 25 == 0:
+                print("  epoch %d/%d  val_ce %.3f cons %.4f (best %.3f)"
+                      % (ep + 1, epochs, vl, float(cons), best), flush=True)
     if best_state:
         model.load_state_dict(best_state)
     return model, (tr, va, te)
@@ -127,7 +154,7 @@ def evaluate(model, data, te):
     base = frames[0]
     # sigma-sweep self-consistency (vs sigma=0) on test atoms
     rng = np.random.default_rng(123)
-    sigmas = [float(m * data["sigma"]) for m in (0, 0.5, 1, 1.5, 2, 3)]
+    sigmas = [0.0, 0.02, 0.05, 0.08, 0.10, 0.12, 0.15]   # absolute A, up to physical thermal amplitude
     g0 = predict_index(model, base, L, radii)[te]
     v0 = voro_pf[0][te]
     gnn_agree, voro_agree = [], []
@@ -135,7 +162,7 @@ def evaluate(model, data, te):
         pj = jitter(base, s, L, rng)
         gnn_agree.append(float((predict_index(model, pj, L, radii)[te] == g0).all(1).mean()))
         voro_agree.append(float((voronoi_index(pj, L, radii)[:, :4][te] == v0).all(1).mean()))
-    learned = jitter_variance(model, base, L, radii, data["sigma"])[te]
+    learned = jitter_variance(model, base, L, radii, DEBYE_WALLER)[te]
     voro_instab = data["instability"][te]
     rho = float(spearmanr(learned, voro_instab).correlation)
     if not np.isfinite(rho):
