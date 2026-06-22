@@ -5,18 +5,23 @@ from detecting icosahedral order, to label-free structure discovery, to
 cross-chemistry transfer, to a **learned, coords-only surrogate for the
 Voronoi index itself**. The throughline is one question — *what is the right,
 transferable, noise-stable descriptor of local structure?* — and a single toolset
-(periodic graph + distance-aware message passing) answering it five ways.
+(periodic graph + distance-aware message passing) answering it across eight phases,
+ending with an honest verdict on what graph-learning can and cannot add over Voro++.
 
 > 📓 **Start here:** [`metallic_glass_gnn.ipynb`](metallic_glass_gnn.ipynb) — one
-> self-contained, executed notebook covering every phase with physics motivation,
-> model maths, and honest discussion.
+> self-contained, executed notebook covering Phases 1–5 with physics motivation,
+> model maths, and honest discussion. The robustness investigation (Phases 6–8) lives
+> in [`scripts/`](scripts/) + [`results/`](results/).
 
-## The five phases, one arc
+## The arc, one question
 
 Detecting the icosahedron (Phase 2) is the special case ⟨0,0,12,0⟩ of predicting
 the full Voronoi index (Phase 5); the icosahedral network, label-free communities,
 and cross-chemistry transfer (Phases 1/3/4) are what a robust per-atom descriptor
-makes possible.
+makes possible. **Phases 6–8 then chase the hardest version of the question — can the
+learned descriptor be *more robust to thermal motion* than Voro++ itself? — and answer
+it honestly: no, but the investigation maps the robustness↔informativeness frontier of
+Voronoi descriptors and pins down exactly what graph-learning *does* add.**
 
 ## Why this is well-posed (Phase-1 result, `samples2`, 10,000 atoms)
 
@@ -183,6 +188,77 @@ level (there the tessellation is more stable), and it is a lossy approximation o
 four-count index. (`scripts/05_robust_voronoi.py`, `results/05_robust_voronoi.{json,png}`, design
 in [`docs/phase5_robust_voronoi_design.md`](docs/phase5_robust_voronoi_design.md).)
 
+## Phases 6–8 — can the learned descriptor be *more robust* than Voro++? (an honest investigation)
+
+Phase 5 left a sharp question: the GNN's apparent thermal-robustness "win" was an
+argmax-stickiness artifact, and at the icosahedron level Voro++ was actually more stable.
+Phases 6–8 chase the robustness question to ground — using [VoroTop](https://www.vorotop.org/)
+(Voronoi *cell topology*) as the reference — and reach an honest, non-overclaimed answer.
+
+**Phase 6 — robustness is a *coarsening* property, not a topology property.** Built VoroTop
+from source and measured the thermal flip-rate of every descriptor granularity from the *same*
+tessellation on `samples1` (13,500 atoms, 11 frames):
+
+| descriptor | distinct types | frame-to-frame flip ↓ | agree @0.12 Å ↑ |
+|---|---|---|---|
+| Weinberg vector (full topology) | 1928 | 0.219 | 0.47 |
+| face-count index ⟨n3,n4,n5,n6⟩ | 439 | 0.213 | 0.48 |
+| **icosahedron class** | 2 | **0.009** | **0.97** |
+
+Counter to the naive "use topology for robustness" intuition, **raw Voronoi topology is the
+*least* stable descriptor** — it is *finer* than the index, so it flips more. Robustness comes
+from *coarsening*. VoroTop's standard-Voronoi numbers match the project's radical pyvoro (index
+flip 0.213 vs 0.212; icosahedron 0.009 vs 0.009), independently cross-validating Phase 5.
+(`scripts/06_vorotop_topology.py`.)
+
+**Phase 6b — the robustness↔informativeness Pareto frontier.** Mapping descriptors on
+(Shannon entropy = informativeness) vs (flip-rate = instability) shows the efficient frontier
+is held by **coordination number** and the joint **(coordination, icosahedral-like)** descriptor
+— both Pareto-*dominate* the face-count index (coordination flips 0.12 vs 0.21 at comparable
+information; `coord_n5like` dominates `n5` on both axes). Naive perturbation-**families** of
+topology *percolate* (one family = 98 % of atoms) and collapse to ~0.2 bits — robust only by
+being trivial. (`scripts/07_vorotop_families.py`.)
+
+**Phase 6c — small-face (λ) filtration backfires.** A face-area filtration λ (drop faces below a
+fraction of the cell surface, then recount) does *not* buy robustness: the filtered index gets
+*less* stable as λ grows (flip 0.21 → 0.49), because faces near the threshold cross it thermally
+— a hard cutoff introduces its own **boundary flicker**. Coordination shows only a marginal sweet
+spot (~20 % fewer flips at λ≈0.01–0.02). This is exactly why VoroTop advocates *topological*
+filtering over ad-hoc cutoffs. (`scripts/09_persistent_voronoi.py`.)
+
+**Phase 7 — the GNN cannot out-robust Voro++ on the robust target.** A coords-only CGCNN trained
+frame→consensus to predict the frontier descriptors (coordination + icosahedral-like),
+benchmarked as a *denoiser* against single-frame Voro++ (agreement with the time-stable
+consensus, recovered from **one** frame):
+
+| agreement with consensus (1 frame) | GNN | Voro++ |
+|---|---|---|
+| coordination | 0.54 | **0.97** |
+| icosahedral-like | 0.87 | **0.99** |
+| joint | 0.48 | **0.96** |
+
+The GNN **loses** — robust targets leave no denoising headroom (single-frame Voro++ already
+recovers the consensus ~97 %) and the GNN is a lossy coords-only approximation. Its lower
+coordination flip-rate (0.04 vs 0.12) is, once again, argmax stickiness on a 54 %-accurate
+predictor (stably *wrong*). (`scripts/08_robust_coordination.py`.)
+
+**Phase 8 — calibrated uncertainty is the one constructive ML positive.** The GNN's **softmax
+predictive entropy** predicts which atoms actually flip across the 11 frames at **ROC-AUC ≈
+0.63–0.69** (with the correct positive Spearman, repairing a broken Phase-5 attempt that gave
+−0.12). It is a soft per-atom *"this descriptor is thermally ambiguous"* flag that Voro++ cannot
+give from a single frame — modest (AUC < 0.7) but real. (Jitter-instability is the weaker signal
+and is suppressed by the consistency regulariser.) (`scripts/10_uncertainty.py`.)
+
+**Capstone.** *"Can a GNN be more robust than Voro++?" — no, and now we know why:* robustness is
+a property of the *target's* coarseness; robust targets leave no denoising headroom; and on
+fragile targets the GNN's stability is an argmax artifact. The GNN's defensible value is being
+**Voro++-free, fast, differentiable, and transferable** (Phases 2/4) **plus a soft uncertainty
+flag** (Phase 8) — *not* robustness. The investigation's standalone contribution is the
+**robustness↔informativeness Pareto map** of Voronoi descriptors (Phase 6/6b).
+
+> **VoroTop** (Phases 6/6b) is built from source — see the header of
+> `scripts/06_vorotop_topology.py` for build/usage and set `VOROTOP_BIN` to the binary.
+
 ## Data
 
 | Folder | System | Has Voronoi labels? | Has face-sharing graph? |
@@ -197,14 +273,16 @@ were generated (reconstructed MD methodology).
 
 ## Requirements
 
-Phases 1–3 are pure **PyTorch + NetworkX + scikit-learn** (CPU). Phase 4 adds one
-optional dependency, **`pyvoro`** (a Voro++ binding), used only to compute
-radical-Voronoi labels for `samples3`: `pip install pyvoro`.
+Phases 1–3 are pure **PyTorch + NetworkX + scikit-learn** (CPU). Phases 4–8 add
+**`pyvoro`** (a Voro++ binding) for radical-Voronoi labels/indices: `pip install pyvoro`.
+Phases 5/7/8 train small CGCNNs (PyTorch, CPU, deterministic). Phases 6/6b additionally
+need the **VoroTop** binary, built from source (the dev branch of Voro++ + VoroTop, GCC
+with OpenMP) — see the header of `scripts/06_vorotop_topology.py`; point `VOROTOP_BIN` at it.
 
 ## Layout
 
 ```
-metallic_glass_gnn.ipynb       # unified, executed walkthrough of Phases 1-3 (read this first)
+metallic_glass_gnn.ipynb       # unified, executed walkthrough of Phases 1-5 (read this first)
 config.py                      # paths to the raw data
 src/data.py                    # parse LAMMPS dump / fo_list / nb_id; icosahedron labels
 src/graph.py                   # build atomic graph; physical (ground-truth) ICO communities
@@ -216,7 +294,12 @@ scripts/01_ico_network.py      # Phase 1: characterise the icosahedral network  
 scripts/02_node_classification.py  # Phase 2: geometry -> icosahedron classifier  [DONE]
 scripts/03_community_detection.py  # Phase 3: label-free community detection      [DONE]
 scripts/04_transfer.py         # Phase 4: cross-chemistry zero-shot transfer      [DONE]
-scripts/05_robust_voronoi.py   # Phase 5: robust, learned Voronoi index            [DONE]
+scripts/05_robust_voronoi.py   # Phase 5: coords-only learned Voronoi-index surrogate [DONE]
+scripts/06_vorotop_topology.py # Phase 6: VoroTop topology stability hierarchy       [DONE]
+scripts/07_vorotop_families.py # Phase 6b: robustness<->informativeness Pareto map   [DONE]
+scripts/08_robust_coordination.py # Phase 7: GNN robust-descriptor denoiser vs Voro++ [DONE]
+scripts/09_persistent_voronoi.py # Phase 6c: small-face (lambda) filtration           [DONE]
+scripts/10_uncertainty.py      # Phase 8: calibrated per-atom uncertainty (entropy)   [DONE]
 docs/lammps.md                 # the molecular-dynamics stage (reconstructed)
 docs/phase4_transfer_design.md # Phase 4 design / methods note
 docs/phase5_robust_voronoi_design.md # Phase 5 design / methods note
@@ -236,6 +319,15 @@ results/                       # figures + metrics JSON
   thermal jitter (+~9 pts over 0.05–0.15 Å) — but **not** more stable at the icosahedron level
   (there Voro++ flips ~2× less); raw fs-frame full-index flip-rate is a tie; exact full-index match
   is modest (0.13). λ tunes accuracy↔self-consistency.
+- [x] **Phases 6–8** — *can the learned descriptor be more robust than Voro++?* Honest **no**:
+  (6) robustness is a *coarsening* property — raw Voronoi topology is the **least** stable (flip
+  0.219 vs index 0.213), the icosahedron class the most (0.009); (6b) the
+  robustness↔informativeness frontier is held by **coordination** and **(coordination, ico-like)**,
+  which Pareto-dominate the index; (6c) hard small-face (λ) filtration *backfires* (boundary
+  flicker); (7) a coords-only GNN denoiser **loses** to single-frame Voro++ on the robust target
+  (agreement-with-consensus 0.54 vs 0.97); (8) **constructive positive** — GNN softmax entropy
+  flags thermally unstable atoms at ROC-AUC **0.63–0.69**. Capstone: the GNN's value is
+  Voro++-free / fast / transferable **+ a soft uncertainty flag**, *not* robustness.
 
 ## Acknowledgements
 
