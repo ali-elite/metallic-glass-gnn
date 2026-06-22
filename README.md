@@ -2,7 +2,7 @@
 
 A graph-neural study of local atomic order in Cu–Zr-type bulk metallic glasses:
 from detecting icosahedral order, to label-free structure discovery, to
-cross-chemistry transfer, to a **learned, thermally-robust replacement for the
+cross-chemistry transfer, to a **learned, coords-only surrogate for the
 Voronoi index itself**. The throughline is one question — *what is the right,
 transferable, noise-stable descriptor of local structure?* — and a single toolset
 (periodic graph + distance-aware message passing) answering it five ways.
@@ -127,7 +127,7 @@ Honest reading (we separate *ranking* from *thresholded* classification):
    (`scripts/04_transfer.py`, `results/04_transfer.{json,png}`, design in
    [`docs/phase4_transfer_design.md`](docs/phase4_transfer_design.md).)
 
-## Phase-5 result — a robust, learned Voronoi index (`samples1`, 11 frames)
+## Phase-5 result — a coords-only learned surrogate for the Voronoi index (`samples1`, 11 frames)
 
 Can a GNN *replace* Voro++ at inference **and** be more robust to thermal motion than
 the tessellation it learned from? We predict ⟨n3,n4,n5,n6⟩ from coordinates alone with
@@ -138,36 +138,50 @@ consensus** of Voro++ over the 11 consecutive frames, and trained with a
 frame and a thermally-jittered copy (jitter scaled to the physical Debye–Waller
 amplitude ≈ 0.12 Å).
 
-**Robustness — the headline, at the physically-meaningful scale.** Under controlled
-jitter the learned index stays put where Voro++ wanders. Fraction of test atoms whose
-index is unchanged vs the σ = 0 reference (higher = more stable):
+**Accuracy (vs the Voro++ consensus labels).** The model recovers the perfect icosahedron at
+**ICO-F1 0.72**, and — trained on `samples1` only — transfers to the *different* `samples2`
+system at **ICO-F1 0.81**, with no Voro++ at inference. The *exact* four-count match is modest
+(**0.13** in-domain, **0.21** cross-system): the full index is an intrinsically sensitive
+function of geometry, and the learned head is a lossy surrogate for it — strong at the
+structural class, approximate at the exact counts.
+
+**Stability — what the learned index does and does not win.** Under controlled jitter we measure
+*self-consistency*: the fraction of test atoms whose descriptor is unchanged vs the σ = 0
+reference (higher = more stable). On the **full four-count index** the GNN's argmax holds its
+value more often than recomputed Voro++ from 0.05 Å outward:
 
 | jitter σ (Å) | 0.05 | 0.08 | 0.10 | **0.12** | 0.15 |
 |---|---|---|---|---|---|
 | **learned GNN** | **0.78** | **0.70** | **0.65** | **0.60** | **0.52** |
 | Voro++ | 0.75 | 0.61 | 0.56 | 0.51 | 0.44 |
 
-From 0.05 Å outward the GNN holds its index more often than Voro++ at **every** scale —
-by **~8–9 points** through the core thermal range (e.g. 0.65 vs 0.56 at 0.10 Å; +3 already
-at 0.05 Å). (At the sub-thermal 0.01 Å spacing of the raw frames the two are tied —
-flip-rate 0.214 vs 0.212 — that scale is finer than thermal motion, so there is
-essentially nothing to beat.)
+Two caveats keep this honest. **(i)** It is largely **argmax stickiness** — a discrete classifier
+changes its output less than a continuous tessellation almost by construction — and it is
+self-consistency of the *full* vector, the quantity the model reproduces only ~13 % of the time.
+**(ii)** At the **icosahedron class** — the descriptor the field actually uses — the ordering
+**reverses**: Voro++ is the more stable of the two at *every* scale:
 
-**Accuracy is retained where it matters.** The same model recovers the perfect
-icosahedron at **ICO-F1 0.72**, and — trained on `samples1` only — transfers to the
-*different* `samples2` system at **ICO-F1 0.81**, with no Voro++ at inference.
+| jitter σ (Å) | 0.05 | 0.08 | 0.10 | **0.12** | 0.15 |
+|---|---|---|---|---|---|
+| learned GNN | 0.980 | 0.971 | 0.960 | 0.947 | 0.927 |
+| **Voro++** | **0.990** | **0.979** | **0.977** | **0.975** | **0.968** |
 
-**An accuracy ↔ robustness knob.** The consistency weight λ trades exact-count fidelity
-for thermal stability: λ = 0 is most accurate (ICO-F1 0.82, cross-system 0.89) but
-*less* stable than Voro++; λ = 4 (above) wins the σ-sweep at ICO-F1 0.72.
+The same ordering holds frame-to-frame at the raw 0.01 Å spacing: perfect-ICO flip-rate **0.019
+(GNN) vs 0.009 (Voro++)** and ICO-like (n5 ≥ 10) **0.036 vs 0.028** — Voro++ flips about half as
+often. (The *full-index* frame-to-frame flip-rate is a tie, 0.214 vs 0.212; that scale is
+sub-thermal, so there is essentially nothing to beat.)
 
-**Stated plainly.** The *exact* four-count match is modest (≈ 0.13): the full index is
-intrinsically a sensitive function of geometry, so robustness is realised at the
-structural-class (icosahedron) level, not every exact count. The σ-sweep measures
-self-consistency the model is trained for, but accuracy on the *true* consensus labels
-is independently retained. (`scripts/05_robust_voronoi.py`,
-`results/05_robust_voronoi.{json,png}`, design in
-[`docs/phase5_robust_voronoi_design.md`](docs/phase5_robust_voronoi_design.md).)
+**An accuracy ↔ self-consistency knob.** The consistency weight λ trades exact-count fidelity for
+full-index stability: λ = 0 is most accurate (ICO-F1 0.82, cross-system 0.89); λ = 4 (above) wins
+the *full-index* σ-sweep at ICO-F1 0.72.
+
+**Stated plainly.** The honest result is a **coords-only surrogate that reproduces Voro++'s
+icosahedral classification well (F1 0.72 in-domain, 0.81 cross-system) and is more self-consistent
+than re-running Voro++ on the full index under jitter** — useful as a fast, differentiable,
+Voro++-free descriptor at inference. It does **not** beat Voro++ on robustness at the icosahedron
+level (there the tessellation is more stable), and it is a lossy approximation of the exact
+four-count index. (`scripts/05_robust_voronoi.py`, `results/05_robust_voronoi.{json,png}`, design
+in [`docs/phase5_robust_voronoi_design.md`](docs/phase5_robust_voronoi_design.md).)
 
 ## Data
 
@@ -215,11 +229,13 @@ results/                       # figures + metrics JSON
 - [x] **Phase 2** — GNN node classifier (geometry → icosahedron): ICO-F1 0.90 vs 0.60 (MLP), ROC-AUC 0.99.
 - [x] **Phase 3** — label-free DMoN community detection: backbone ROC-AUC **0.82**, NMI **0.105** (≈50× Louvain's 0.002); finding that MRO is a *local-geometry* signal, not topological modularity.
 - [x] **Phase 4** — cross-chemistry zero-shot transfer over 27 `samples3` alloys (mean±std, 5 seeds): an element-agnostic Cu–Zr detector ranks icosahedra at ROC-AUC **0.98 (Cu–Zr) / 0.96 (Ni–Zr) / 0.89 (Co–W) / 0.65 (Cu–Zr–Al)** — binary→binary transfer ≈ in-domain, but adding a 3rd element (Cu–Zr–Al) breaks transfer (oracle 0.93): compositional novelty, not chemical distance, is the limit; threshold needs recalibration.
-- [x] **Phase 5** — robust, learned Voronoi index: a per-count classification CGCNN predicts
-  ⟨n3,n4,n5,n6⟩ from coordinates (consensus label + temporal-consistency regularisation),
-  replacing Voro++ at inference. **More stable than Voro++ at physical thermal amplitudes**
-  (σ-sweep agreement +~9 pts over 0.05–0.15 Å) at ICO-F1 **0.72** / cross-system **0.81**; λ
-  tunes accuracy↔robustness. (Raw fs-frame flip-rate is a tie; exact full-index match is modest.)
+- [x] **Phase 5** — coords-only learned surrogate for the Voronoi index: a per-count
+  classification CGCNN predicts ⟨n3,n4,n5,n6⟩ from coordinates (consensus label +
+  temporal-consistency regularisation), replacing Voro++ at inference at ICO-F1 **0.72** /
+  cross-system **0.81**. More *self-consistent* than re-running Voro++ on the **full** index under
+  thermal jitter (+~9 pts over 0.05–0.15 Å) — but **not** more stable at the icosahedron level
+  (there Voro++ flips ~2× less); raw fs-frame full-index flip-rate is a tie; exact full-index match
+  is modest (0.13). λ tunes accuracy↔self-consistency.
 
 ## Acknowledgements
 

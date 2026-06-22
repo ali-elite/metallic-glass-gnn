@@ -1,10 +1,12 @@
-"""Phase 5 — a robust, learned Voronoi index that replaces Voro++ at inference.
+"""Phase 5 — a coords-only learned surrogate for the Voronoi index (replaces Voro++ at inference).
 
 Distils Voro++ (over the 11 samples1 frames) into a per-count CLASSIFICATION CGCNN
 that predicts <n3,n4,n5,n6> from coordinates, trained on the time-stable consensus
-with a temporal-consistency regulariser (jittered vs clean view). The learned index
-is MORE stable than raw Voro++ under physical thermal jitter (the sigma-sweep) at the
-icosahedron level; the sub-thermal 0.01 A frame-to-frame flip-rate is a tie.
+with a temporal-consistency regulariser (jittered vs clean view). Honest stability story:
+on the FULL four-count index the argmax is more self-consistent than re-running Voro++ under
+thermal jitter (the sigma-sweep), but that largely reflects argmax stickiness; at the
+ICOSAHEDRON level Voro++ is the more stable of the two (lower flip-rate / higher agreement
+at every sigma). The sub-thermal 0.01 A frame-to-frame full-index flip-rate is a tie.
 
 Run:  python3 scripts/05_robust_voronoi.py            # full
       python3 scripts/05_robust_voronoi.py --smoke     # fast subsample / few epochs
@@ -153,31 +155,56 @@ def evaluate(model, data, te):
     voro_pf = fi[:, :, :4]
     pred0, true = gnn_pf[0][te], label[te]
     base = frames[0]
-    # sigma-sweep self-consistency (vs sigma=0) on test atoms
+    # sigma-sweep self-consistency (vs sigma=0) on test atoms, at absolute physical jitter
+    # amplitudes -- for the full index AND the coarse icosahedron label
     rng = np.random.default_rng(123)
     sigmas = [0.0, 0.02, 0.05, 0.08, 0.10, 0.12, 0.15]   # absolute A, up to physical thermal amplitude
-    g0 = predict_index(model, base, L, radii)[te]
-    v0 = voro_pf[0][te]
-    gnn_agree, voro_agree = [], []
+    g0_full = predict_index(model, base, L, radii)
+    v0_full = voro_pf[0]
+    g0, v0 = g0_full[te], v0_full[te]
+    g0_ico, v0_ico = ico_from_counts(g0_full)[te], ico_from_counts(v0_full)[te]
+    gnn_agree, voro_agree, gnn_ico_agree, voro_ico_agree = [], [], [], []
     for s in sigmas:
         pj = jitter(base, s, L, rng)
-        gnn_agree.append(float((predict_index(model, pj, L, radii)[te] == g0).all(1).mean()))
-        voro_agree.append(float((voronoi_index(pj, L, radii)[:, :4][te] == v0).all(1).mean()))
+        gp = predict_index(model, pj, L, radii)
+        vp = voronoi_index(pj, L, radii)[:, :4]
+        gnn_agree.append(float((gp[te] == g0).all(1).mean()))
+        voro_agree.append(float((vp[te] == v0).all(1).mean()))
+        gnn_ico_agree.append(float((ico_from_counts(gp)[te] == g0_ico).mean()))
+        voro_ico_agree.append(float((ico_from_counts(vp)[te] == v0_ico).mean()))
     learned = jitter_variance(model, base, L, radii, DEBYE_WALLER)[te]
     voro_instab = data["instability"][te]
     rho = float(spearmanr(learned, voro_instab).correlation)
     if not np.isfinite(rho):
         rho = None   # constant input -> undefined correlation; null keeps the JSON valid
+    # coarse structural-label temporal stability (GNN vs Voro++): the icosahedron is the
+    # descriptor the field actually uses. Here the ordering is the REVERSE of the full-index
+    # sigma-sweep -- Voro++ flips about half as often as the GNN at the icosahedron level
+    # (perfect-ICO ~0.009 vs ~0.019), i.e. the tessellation is the more stable of the two at the
+    # structural-class scale; the GNN's full-index "win" is largely argmax stickiness, not physics.
+    def _coarse_flip(per_frame_counts, fn):
+        lab = np.stack([fn(per_frame_counts[f]).astype(int)
+                        for f in range(per_frame_counts.shape[0])])   # (F,N)
+        return flip_rate(lab[:, te, None])
+    is_like = lambda c: (np.asarray(c)[:, 2] >= 10)                   # icosahedral-like: n5 >= 10
+    coarse = dict(
+        ico_flip_gnn=_coarse_flip(gnn_pf, ico_from_counts),
+        ico_flip_voro=_coarse_flip(voro_pf, ico_from_counts),
+        like_flip_gnn=_coarse_flip(gnn_pf, is_like),
+        like_flip_voro=_coarse_flip(voro_pf, is_like),
+    )
     # subsample for the scatter panel (keep JSON small)
     si = np.random.default_rng(1).choice(len(learned), min(1000, len(learned)), replace=False)
     return dict(
+        coarse_flip=coarse,
         per_count_mae=per_count_mae(pred0, true).tolist(),
         exact_match=exact_match(pred0, true),
         ico_f1=float(f1_score(ico_from_counts(true), ico_from_counts(pred0))),
         flip_rate_gnn=flip_rate(gnn_pf[:, te, :]),
         flip_rate_voro=flip_rate(voro_pf[:, te, :]),
         voro_mean_instability=float(voro_instab.mean()),
-        sigma_sweep=dict(sigma=sigmas, gnn_agree=gnn_agree, voro_agree=voro_agree),
+        sigma_sweep=dict(sigma=sigmas, gnn_agree=gnn_agree, voro_agree=voro_agree,
+                         gnn_ico_agree=gnn_ico_agree, voro_ico_agree=voro_ico_agree),
         instability_spearman=rho,
         scatter=dict(voro=voro_instab[si].tolist(), learned=learned[si].tolist()),
         thermal_sigma=float(data["sigma"]), n_test=int(te.sum()),
@@ -201,15 +228,22 @@ def make_figure(m, path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(2, 2, figsize=(11, 8))
-    ax[0, 0].bar(["Voro++", "GNN"], [m["flip_rate_voro"], m["flip_rate_gnn"]],
-                 color=["#cc4444", "#4488cc"])
-    ax[0, 0].set_title("Temporal flip-rate (lower = more stable)")
-    ax[0, 0].set_ylabel("fraction of test atoms whose index flips")
+    # frame-to-frame flip-rate: full index (a tie) vs perfect-ICO (Voro++ is the more stable one)
+    cf = m["coarse_flip"]
+    xb = np.arange(2)
+    ax[0, 0].bar(xb - 0.2, [m["flip_rate_voro"], cf["ico_flip_voro"]], 0.4, color="#cc4444", label="Voro++")
+    ax[0, 0].bar(xb + 0.2, [m["flip_rate_gnn"], cf["ico_flip_gnn"]], 0.4, color="#4488cc", label="GNN")
+    ax[0, 0].set_xticks(xb); ax[0, 0].set_xticklabels(["full index\n(tie)", "perfect-ICO\n(Voro++ wins)"])
+    ax[0, 0].set_title("Frame-to-frame flip-rate (lower = more stable)")
+    ax[0, 0].set_ylabel("fraction of test atoms whose label flips"); ax[0, 0].legend()
     sw = m["sigma_sweep"]
-    ax[0, 1].plot(sw["sigma"], sw["voro_agree"], "o-", color="#cc4444", label="Voro++")
-    ax[0, 1].plot(sw["sigma"], sw["gnn_agree"], "s-", color="#4488cc", label="GNN")
+    ax[0, 1].plot(sw["sigma"], sw["voro_agree"], "o-", color="#cc4444", label="Voro++ (full index)")
+    ax[0, 1].plot(sw["sigma"], sw["gnn_agree"], "s-", color="#4488cc", label="GNN (full index)")
+    ax[0, 1].plot(sw["sigma"], sw["voro_ico_agree"], "o--", color="#cc4444", label="Voro++ (icosahedron)")
+    ax[0, 1].plot(sw["sigma"], sw["gnn_ico_agree"], "s--", color="#4488cc", label="GNN (icosahedron)")
     ax[0, 1].set_xlabel("jitter sigma (A)"); ax[0, 1].set_ylabel("agreement with sigma=0")
-    ax[0, 1].set_title("Stability vs thermal jitter"); ax[0, 1].legend()
+    ax[0, 1].set_title("Self-consistency vs thermal jitter\n(solid = full index, dashed = icosahedron)")
+    ax[0, 1].legend(fontsize=8)
     ax[1, 0].bar(["n3", "n4", "n5", "n6"], m["per_count_mae"], color="#4488cc")
     ax[1, 0].set_title("Per-count MAE  (exact %.2f, ICO-F1 %.2f)"
                        % (m["exact_match"], m["ico_f1"]))
@@ -239,7 +273,10 @@ def main():
     with open(os.path.join(config.RESULTS, "05_robust_voronoi%s.json" % suffix), "w") as f:
         json.dump(m, f, indent=2)
     make_figure(m, os.path.join(config.RESULTS, "05_robust_voronoi%s.png" % suffix))
-    print("flip-rate  GNN %.4f  vs  Voro++ %.4f" % (m["flip_rate_gnn"], m["flip_rate_voro"]))
+    print("full-index flip-rate   GNN %.4f  vs  Voro++ %.4f" % (m["flip_rate_gnn"], m["flip_rate_voro"]))
+    cf = m["coarse_flip"]
+    print("perfect-ICO flip-rate  GNN %.4f  vs  Voro++ %.4f" % (cf["ico_flip_gnn"], cf["ico_flip_voro"]))
+    print("ICO-like   flip-rate   GNN %.4f  vs  Voro++ %.4f" % (cf["like_flip_gnn"], cf["like_flip_voro"]))
     rho_str = "%.2f" % m["instability_spearman"] if m["instability_spearman"] is not None else "N/A"
     print("exact %.3f | ICO-F1 %.3f | instability rho %s"
           % (m["exact_match"], m["ico_f1"], rho_str))
